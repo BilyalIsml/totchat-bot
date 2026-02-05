@@ -4,7 +4,7 @@ import time
 import requests
 import asyncio
 
-from telegram import Update, ReplyKeyboardMarkup, Bot
+from telegram import Update, ReplyKeyboardMarkup, Bot, BotCommand
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, ContextTypes, filters
 from telegram.error import Conflict
 
@@ -32,7 +32,7 @@ def can_send(user_id):
     user_last_time[user_id] = now
     return True
 
-# ---------- КРАСИВОЕ МЕНЮ ----------
+# ---------- КРАСИВОЕ МЕНЮ (ReplyKeyboard для чата) ----------
 keyboard = ReplyKeyboardMarkup(
     [["/start", "/help"], ["/tp"]],
     resize_keyboard=True
@@ -52,11 +52,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "⚡ Доступные команды:\n"
-        "/start — приветствие и меню\n"
-        "/help или /tp — справка\n\n"
+        "/start — Главное меню\n"
+        "/help — Помощь\n"
+        "/tp — Спросить ИИ\n\n"
         "Просто напиши свой вопрос, и я отвечу!",
         parse_mode="Markdown"
     )
+
+async def tp_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Временно вызывает help, как в твоём оригинале
+    await help_command(update, context)
 
 # ---------- ОБРАБОТКА СООБЩЕНИЙ С “💭 думаю…” ----------
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -107,23 +112,26 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 # ---------- ЗАПУСК ----------
-bot_instance = Bot(BOT_TOKEN)
-bot_instance.delete_webhook()
-logging.info("✅ Webhook removed (если был)")
-
 app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-# Команды
+# ---------- ВСТРОЕННОЕ МЕНЮ КОМАНД (Telegram) ----------
+commands = [
+    BotCommand("start", "🏠 Главное меню"),
+    BotCommand("help", "❓ Помощь"),
+    BotCommand("tp", "💭 Спросить ИИ")
+]
+app.bot.set_my_commands(commands)  # это создаёт меню рядом с полем ввода
+
+# ---------- Регистрируем обработчики ----------
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("help", help_command))
-app.add_handler(CommandHandler("tp", help_command))
+app.add_handler(CommandHandler("tp", tp_command))
 
-# Сообщения
+# Сообщения без команд
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
 
-# Запуск с обработкой Conflict
+# ---------- Запуск с обработкой Conflict ----------
 try:
     app.run_polling()
 except Conflict:
     logging.warning("🚨 Конфликт polling. Старый бот был завершён.")
-
