@@ -8,8 +8,8 @@ from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, Con
 from telegram.error import Conflict
 
 # ---------- НАСТРОЙКИ ----------
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+BOT_TOKEN = os.getenv("BOT_TOKEN")  # токен из Railway
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")  # ключ OpenRouter из Railway
 MODEL = "google/gemma-2-9b-it"
 
 # ---------- ЛОГИ ----------
@@ -117,4 +117,3 @@ try:
     app.run_polling()
 except Conflict:
     logging.warning("🚨 Конфликт polling. Старый бот был завершён.")
-    # Можно здесь перезапускать, но обычно достаточно перезапустить контейнер
