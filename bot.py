@@ -3,8 +3,9 @@ import logging
 import time
 import requests
 
-from telegram import Update, ReplyKeyboardMarkup
+from telegram import Update, ReplyKeyboardMarkup, Bot
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, ContextTypes, filters
+from telegram.error import Conflict
 
 # ---------- НАСТРОЙКИ ----------
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -22,7 +23,6 @@ logging.info("🚀 TotChat bot starting...")
 user_last_time = {}
 MESSAGE_COOLDOWN = 5  # секунд между сообщениями
 
-# ---------- СТАТИСТИКА ПО ЛИМИТУ ----------
 def can_send(user_id):
     now = time.time()
     last = user_last_time.get(user_id, 0)
@@ -97,6 +97,11 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 # ---------- ЗАПУСК ----------
+# Создаём объект Bot и удаляем старый webhook, чтобы избежать Conflict
+bot_instance = Bot(BOT_TOKEN)
+bot_instance.delete_webhook()
+logging.info("✅ Webhook removed (если был)")
+
 app = ApplicationBuilder().token(BOT_TOKEN).build()
 
 # Команды
@@ -107,4 +112,9 @@ app.add_handler(CommandHandler("tp", help_command))
 # Сообщения
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
 
-app.run_polling()
+# ---------- ЗАПУСК ПОЛИНГА С ОБРАБОТКОЙ CONFLICT ----------
+try:
+    app.run_polling()
+except Conflict:
+    logging.warning("🚨 Конфликт polling. Старый бот был завершён.")
+    # Можно здесь перезапускать, но обычно достаточно перезапустить контейнер
