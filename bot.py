@@ -1,11 +1,13 @@
 import os
 import logging
 import time
-import requests
 import asyncio
+import aiohttp
 
-from telegram import Update, ReplyKeyboardMarkup, Bot
-from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, ContextTypes, filters
+from telegram import Update, BotCommand
+from telegram.ext import (
+    ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
+)
 from telegram.error import Conflict
 
 # ---------- НАСТРОЙКИ ----------
@@ -14,10 +16,7 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 MODEL = "google/gemma-2-9b-it"
 
 # ---------- ЛОГИ ----------
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logging.info("🚀 TotChat bot starting...")
 
 # ---------- ЛИМИТ СООБЩЕНИЙ ----------
@@ -32,36 +31,43 @@ def can_send(user_id):
     user_last_time[user_id] = now
     return True
 
-# ---------- КРАСИВОЕ МЕНЮ ----------
-keyboard = ReplyKeyboardMarkup(
-    [["/start", "/help"], ["/tp"]],
-    resize_keyboard=True
-)
-
 # ---------- КОМАНДЫ ----------
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_name = update.message.from_user.first_name
     await update.message.reply_text(
         f"🔥 Привет, {user_name}! Я *TotChat* — твой ИИ-помощник.\n\n"
-        "💡 Напиши мне любой вопрос, и я дам ответ.\n"
-        "Используй кнопки ниже или команды /help, /tp",
-        parse_mode="Markdown",
-        reply_markup=keyboard
+        "💡 Используй меню команд (кнопка рядом с полем ввода) или просто напиши свой вопрос.",
+        parse_mode="Markdown"
     )
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "⚡ Доступные команды:\n"
-        "/start — приветствие и меню\n"
-        "/help или /tp — справка\n\n"
+        "/start — главное меню\n"
+        "/help — справка\n"
+        "/tp <текст> — спросить ИИ\n\n"
         "Просто напиши свой вопрос, и я отвечу!",
         parse_mode="Markdown"
     )
 
+async def tos_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "📄 Пользовательское соглашение:\n..."
+    )
+
+async def tp_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text("💭 Пожалуйста, напиши вопрос после команды /tp")
+        return
+
+    user_text = " ".join(context.args)
+    await handle(update, context, user_text)
+
 # ---------- ОБРАБОТКА СООБЩЕНИЙ С “💭 думаю…” ----------
-async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE, user_text=None):
     user_id = update.message.from_user.id
-    user_text = update.message.text
+    user_text = user_text or update.message.text
 
     if not can_send(user_id):
         await update.message.reply_text("⏳ Подожди немного перед следующим сообщением.")
@@ -70,59 +76,61 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logging.info(f"User {user_id} sent: {user_text}")
 
     try:
-        # Отправляем сообщение "думаю"
+        # Сообщение "думаю"
         thinking = await update.message.reply_text("💭 Думаю...")
-        await asyncio.sleep(1)  # пауза, чтобы выглядело живо
+        await asyncio.sleep(0.5)  # маленькая пауза для эффекта
 
-        # Запрос к OpenRouter
-        response = requests.post(
-            "https://openrouter.ai/api/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                "Content-Type": "application/json"
-            },
-            json={
-                "model": MODEL,
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": "Ты TotChat — умный ИИ-помощник. Отвечай логично, понятно и полезно."
-                    },
-                    {"role": "user", "content": user_text}
-                ]
-            },
-            timeout=30
-        )
-        response.raise_for_status()
-        data = response.json()
-        answer = data["choices"][0]["message"]["content"]
+        # Асинхронный запрос к OpenRouter
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": MODEL,
+                    "messages": [
+                        {"role": "system", "content": "Ты TotChat — умный ИИ-помощник. Отвечай логично и понятно."},
+                        {"role": "user", "content": user_text}
+                    ]
+                },
+                timeout=30
+            ) as resp:
+                resp.raise_for_status()
+                data = await resp.json()
+                answer = data["choices"][0]["message"]["content"]
 
-        # Редактируем сообщение “думаю” на реальный ответ
+        # Редактируем сообщение “думаю” на ответ
         await thinking.edit_text(f"💡 {answer}", parse_mode="Markdown")
 
     except Exception as e:
         logging.error(f"ERROR for user {user_id}: {e}")
-        await update.message.reply_text(
-            "⚠️ Произошла временная ошибка. Попробуй чуть позже."
-        )
+        await update.message.reply_text("⚠️ Произошла ошибка. Попробуй чуть позже.")
 
-# ---------- ЗАПУСК ----------
-bot_instance = Bot(BOT_TOKEN)
-bot_instance.delete_webhook()
-logging.info("✅ Webhook removed (если был)")
+# ---------- ЗАПУСК БОТА ----------
+bot_instance = ApplicationBuilder().token(BOT_TOKEN).build()
 
-app = ApplicationBuilder().token(BOT_TOKEN).build()
+# Устанавливаем команды меню (Telegram встроенное меню)
+commands = [
+    BotCommand("start", "🏠 Главное меню"),
+    BotCommand("help", "❓ Помощь"),
+    BotCommand("tp", "💭 Спросить ИИ"),
+    BotCommand("tos", "📄 Пользовательское соглашение")
+]
+bot_instance.bot.set_my_commands(commands)
 
-# Команды
-app.add_handler(CommandHandler("start", start))
-app.add_handler(CommandHandler("help", help_command))
-app.add_handler(CommandHandler("tp", help_command))
+# Регистрируем команды
+bot_instance.add_handler(CommandHandler("start", start))
+bot_instance.add_handler(CommandHandler("help", help_command))
+bot_instance.add_handler(CommandHandler("tp", tp_command))
+bot_instance.add_handler(CommandHandler("tos", tos_command))
 
-# Сообщения
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
+# Сообщения без команд
+bot_instance.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
 
 # Запуск с обработкой Conflict
 try:
-    app.run_polling()
+    bot_instance.run_polling()
 except Conflict:
     logging.warning("🚨 Конфликт polling. Старый бот был завершён.")
