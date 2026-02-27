@@ -12,7 +12,7 @@ from telegram.error import Conflict
 # ---------- НАСТРОЙКИ ----------
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-MODEL = "google/gemma-2-9b-it"
+MODEL = "openai/gpt-4o-mini"
 USERS_FILE = "users.json"  # файл для хранения пользователей
 
 # ---------- ЛОГИ ----------
