@@ -1,1 +1,1 @@
-# totchat-bot
+# chatgpt-bot
